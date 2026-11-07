@@ -127,7 +127,7 @@ try {
     const u = sellerDocs[i % sellerDocs.length];
     const meta = sellers.find((s) => s.email === u.email) ?? {};
     return {
-      userId: u.id,
+      userId: u._id.toString(),
       name: u.name,
       email: u.email,
       phone: meta.phone ?? "",
