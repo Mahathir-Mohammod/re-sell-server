@@ -1,0 +1,10 @@
+import { ApiError } from "../utils/ApiError.js";
+
+export const requireRole =
+  (...roles) =>
+  (req, res, next) => {
+    if (!roles.includes(req.user?.role)) {
+      return next(new ApiError(403, `Requires role: ${roles.join(" or ")}`));
+    }
+    next();
+  };
