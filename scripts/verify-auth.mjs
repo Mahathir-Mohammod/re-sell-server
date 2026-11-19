@@ -3,6 +3,8 @@
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { MongoMemoryServer } from "mongodb-memory-server";
+import { runSellerChecks } from "./sellerChecks.mjs";
+import { MongoClient } from "mongodb";
 
 const CLIENT_PORT = 3100;
 const API_PORT = 5100;
@@ -56,6 +58,7 @@ try {
     BETTER_AUTH_SECRET: SECRET,
     BETTER_AUTH_URL: CLIENT_URL,
     NEXT_PUBLIC_APP_URL: CLIENT_URL,
+    AUTH_RATE_LIMIT: "off",
   });
   await waitFor(`${CLIENT_URL}/api/auth/ok`);
 
@@ -125,7 +128,16 @@ try {
   });
   assert(bad.status === 401, `tampered token rejected (${bad.status})`);
 
-  console.log("\nPhase 0 verified end to end.");
+  await runSellerChecks({
+    API_URL,
+    CLIENT_URL,
+    MONGODB_URI,
+    sellerToken: token,
+    sellerId: body.data.id,
+    assert,
+  });
+
+  console.log("\nPhase 0 + Phase 2 verified end to end.");
 } catch (err) {
   console.error(`\n${err.message}`);
   process.exitCode = 1;
