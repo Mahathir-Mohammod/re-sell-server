@@ -1,10 +1,11 @@
 import { z } from "zod";
 
 // Express 5 makes req.query a read-only getter, so parsed input goes on req.validated.
+// Merges, so several validators can be chained on one route (params + body).
 export const validate =
   (schemas) =>
   (req, res, next) => {
-    req.validated = {};
+    req.validated ??= {};
     for (const key of ["params", "query", "body"]) {
       if (schemas[key]) req.validated[key] = schemas[key].parse(req[key]);
     }
