@@ -6,11 +6,12 @@ const schema = z.object({
   PORT: z.coerce.number().int().positive().default(5000),
   CLIENT_URL: z.url().default("http://localhost:3000"),
   MONGODB_URI: z.string().min(1, "MONGODB_URI is required"),
-  BETTER_AUTH_JWKS_URL: z
-    .url()
-    .default("http://localhost:3000/api/auth/jwks"),
+  BETTER_AUTH_JWKS_URL: z.url().default("http://localhost:3000/api/auth/jwks"),
   BETTER_AUTH_ISSUER: z.string().optional(),
   BETTER_AUTH_AUDIENCE: z.string().optional(),
+  STRIPE_SECRET_KEY: z.string().optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  DELIVERY_FEE: z.coerce.number().min(0).default(0.99),
 });
 
 const parsed = schema.safeParse(process.env);
