@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { MongoMemoryServer } from "mongodb-memory-server";
 import { runSellerChecks } from "./sellerChecks.mjs";
+import { runDashboardChecks } from "./dashboardChecks.mjs";
 import { MongoClient } from "mongodb";
 
 const CLIENT_PORT = 3100;
@@ -137,7 +138,16 @@ try {
     assert,
   });
 
-  console.log("\nPhase 0 + Phase 2 verified end to end.");
+  await runDashboardChecks({
+    API_URL,
+    CLIENT_URL,
+    MONGODB_URI,
+    sellerToken: token,
+    sellerId: body.data.id,
+    assert,
+  });
+
+  console.log("\nPhase 0 + Phase 2 + Phase 4 verified end to end.");
 } catch (err) {
   console.error(`\n${err.message}`);
   process.exitCode = 1;
