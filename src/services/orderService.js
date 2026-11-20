@@ -5,6 +5,7 @@ import { toCents } from "../config/stripe.js";
 import { ApiError } from "../utils/ApiError.js";
 import { getPagination, paginationMeta } from "../utils/pagination.js";
 import { computeTotals, grandTotalCents, groupBySeller, publicTotals } from "./pricingService.js";
+import { refundOrder } from "./refundService.js";
 
 const orders = () => getDb().collection(collections.orders);
 const products = () => getDb().collection(collections.products);
@@ -143,20 +144,56 @@ async function findOrder(id) {
   return order;
 }
 
-export async function cancelOrderForBuyer(id, buyerId) {
+// Paid orders are refunded before anything is mutated, so a failed refund leaves the
+// order untouched instead of cancelling it without returning the money.
+export async function cancelOrderForBuyer(id, buyerId, { stripe } = {}) {
   const order = await findOrder(id);
   if (order.buyerInfo?.userId !== buyerId) throw new ApiError(403, "This order is not yours");
   assertTransition(order.orderStatus, "cancelled");
 
+  const wasPaid = order.paymentStatus === "paid";
+  const refund = wasPaid ? await refundOrder(order, stripe) : null;
+
   const now = new Date();
+  const history = [{ status: "cancelled", at: now, by: buyerId }];
+  if (refund) history.push({ status: "refunded", at: now, by: "stripe", refundId: refund.refundId });
+
   await orders().updateOne(
     { _id: order._id },
     {
-      $set: { orderStatus: "cancelled", updatedAt: now },
-      $push: { statusHistory: { status: "cancelled", at: now, by: buyerId } },
+      $set: {
+        orderStatus: "cancelled",
+        ...(refund && { paymentStatus: "refunded" }),
+        updatedAt: now,
+      },
+      $push: { statusHistory: { $each: history } },
     }
   );
-  return { ...order, orderStatus: "cancelled" };
+
+  // the stock was taken when the payment succeeded, so give it back
+  if (wasPaid) await restoreStock(order, now);
+
+  return { ...order, orderStatus: "cancelled", ...(refund && { paymentStatus: "refunded", refund }) };
+}
+
+async function restoreStock(order, now) {
+  for (const item of order.items ?? []) {
+    if (!ObjectId.isValid(item.productId)) continue;
+    const product = await products().findOne({ _id: new ObjectId(item.productId) });
+    if (!product) continue;
+
+    const stock = (product.stock ?? 0) + item.quantity;
+    await products().updateOne(
+      { _id: product._id },
+      {
+        $set: {
+          stock,
+          status: product.status === "sold" ? "available" : product.status,
+          updatedAt: now,
+        },
+      }
+    );
+  }
 }
 
 // Applied by both the webhook and the confirm fallback: stock moves exactly once.

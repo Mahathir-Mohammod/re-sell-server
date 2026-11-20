@@ -261,3 +261,97 @@ test.after(async () => {
   await mongo.stop();
 });
 
+
+test("cancelling a paid order refunds the card and restores stock", async () => {
+  const product = await insertProduct({ title: "Refund me", price: 25, stock: 2 });
+  const buyer = { id: BUYER, name: "Buyer", email: "b@example.com" };
+  const priced = await priceCart(BUYER, [{ productId: product.insertedId.toString(), quantity: 2 }], 0.99);
+  const [order] = await createPendingOrders(buyer, priced, { address: "1 Test St, Testville", phone: "555" });
+
+  const intent = {
+    id: "pi_refund_1",
+    amount: 5099,
+    amount_received: 5099,
+    currency: "usd",
+    metadata: { buyerId: BUYER, orderIds: order._id.toString() },
+  };
+  await applySuccessfulPayment(intent);
+  assert.equal((await getDb().collection("products").findOne({ _id: product.insertedId })).stock, 0);
+
+  // fake stripe so the test stays offline
+  const refundCalls = [];
+  const fakeStripe = {
+    refunds: {
+      create: async (params, options) => {
+        refundCalls.push({ params, options });
+        return { id: "re_test_1", status: "succeeded" };
+      },
+    },
+  };
+
+  const { cancelOrderForBuyer } = await import("../src/services/orderService.js");
+  const cancelled = await cancelOrderForBuyer(order._id.toString(), BUYER, { stripe: fakeStripe });
+
+  assert.equal(refundCalls.length, 1, "stripe refund was called");
+  assert.equal(refundCalls[0].params.payment_intent, "pi_refund_1");
+  assert.equal(refundCalls[0].params.amount, 5099, "refunded the order total in cents");
+  assert.equal(refundCalls[0].options.idempotencyKey, `refund_order_${order._id}`, "idempotent refund key");
+
+  assert.equal(cancelled.orderStatus, "cancelled");
+  assert.equal(cancelled.paymentStatus, "refunded");
+
+  const saved = await getDb().collection("orders").findOne({ _id: order._id });
+  assert.equal(saved.orderStatus, "cancelled");
+  assert.equal(saved.paymentStatus, "refunded");
+  assert.ok(saved.statusHistory.some((h) => h.status === "refunded"), "refund in the history");
+
+  const payment = await getDb().collection("payments").findOne({ transactionId: "pi_refund_1" });
+  assert.equal(payment.status, "refunded");
+  assert.equal(payment.refundedAmount, 50.99);
+  assert.deepEqual(payment.refundIds, ["re_test_1"]);
+
+  assert.equal((await getDb().collection("products").findOne({ _id: product.insertedId })).stock, 2, "stock restored");
+});
+
+test("a failed refund leaves the paid order untouched", async () => {
+  const product = await insertProduct({ title: "Refund fails", price: 10, stock: 3 });
+  const buyer = { id: BUYER, name: "Buyer", email: "b@example.com" };
+  const priced = await priceCart(BUYER, [{ productId: product.insertedId.toString(), quantity: 1 }], 0.99);
+  const [order] = await createPendingOrders(buyer, priced, { address: "1 Test St, Testville", phone: "555" });
+  await applySuccessfulPayment({
+    id: "pi_refund_fail",
+    amount: 1099,
+    amount_received: 1099,
+    currency: "usd",
+    metadata: { buyerId: BUYER, orderIds: order._id.toString() },
+  });
+
+  const { cancelOrderForBuyer } = await import("../src/services/orderService.js");
+  const brokenStripe = { refunds: { create: async () => { throw new Error("network down"); } } };
+
+  await assert.rejects(
+    () => cancelOrderForBuyer(order._id.toString(), BUYER, { stripe: brokenStripe }),
+    /Could not refund this order/
+  );
+
+  const saved = await getDb().collection("orders").findOne({ _id: order._id });
+  assert.equal(saved.orderStatus, "pending", "order not cancelled");
+  assert.equal(saved.paymentStatus, "paid", "still marked paid");
+  assert.equal((await getDb().collection("products").findOne({ _id: product.insertedId })).stock, 2, "stock untouched");
+});
+
+test("cancelling an unpaid order does not call stripe", async () => {
+  const product = await insertProduct({ title: "Unpaid", price: 8, stock: 5 });
+  const buyer = { id: BUYER, name: "Buyer", email: "b@example.com" };
+  const priced = await priceCart(BUYER, [{ productId: product.insertedId.toString(), quantity: 1 }], 0.99);
+  const [order] = await createPendingOrders(buyer, priced, { address: "1 Test St, Testville", phone: "555" });
+
+  let called = false;
+  const fakeStripe = { refunds: { create: async () => { called = true; return { id: "x" }; } } };
+  const { cancelOrderForBuyer } = await import("../src/services/orderService.js");
+  const cancelled = await cancelOrderForBuyer(order._id.toString(), BUYER, { stripe: fakeStripe });
+
+  assert.equal(called, false);
+  assert.equal(cancelled.orderStatus, "cancelled");
+  assert.equal((await getDb().collection("products").findOne({ _id: product.insertedId })).stock, 5);
+});
