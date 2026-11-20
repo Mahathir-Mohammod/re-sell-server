@@ -137,32 +137,32 @@ export async function getOrderForBuyer(id, buyerId) {
   return order;
 }
 
-async function findOrder(id) {
+export async function findOrder(id) {
   if (!ObjectId.isValid(id)) throw new ApiError(404, "Order not found");
   const order = await orders().findOne({ _id: new ObjectId(id) });
   if (!order) throw new ApiError(404, "Order not found");
   return order;
 }
 
-// Paid orders are refunded before anything is mutated, so a failed refund leaves the
-// order untouched instead of cancelling it without returning the money.
-export async function cancelOrderForBuyer(id, buyerId, { stripe } = {}) {
-  const order = await findOrder(id);
-  if (order.buyerInfo?.userId !== buyerId) throw new ApiError(403, "This order is not yours");
-  assertTransition(order.orderStatus, "cancelled");
+// The one write path for a status change, shared by buyer cancel, seller reject and
+// admin updates. Paid orders are refunded before anything is mutated, so a failed
+// refund leaves the order untouched instead of reversing it without returning money.
+export async function transitionOrder(order, to, by, { stripe } = {}) {
+  assertTransition(order.orderStatus, to);
 
+  const reversing = to === "cancelled" || to === "rejected";
   const wasPaid = order.paymentStatus === "paid";
-  const refund = wasPaid ? await refundOrder(order, stripe) : null;
+  const refund = reversing && wasPaid ? await refundOrder(order, stripe) : null;
 
   const now = new Date();
-  const history = [{ status: "cancelled", at: now, by: buyerId }];
+  const history = [{ status: to, at: now, by }];
   if (refund) history.push({ status: "refunded", at: now, by: "stripe", refundId: refund.refundId });
 
   await orders().updateOne(
     { _id: order._id },
     {
       $set: {
-        orderStatus: "cancelled",
+        orderStatus: to,
         ...(refund && { paymentStatus: "refunded" }),
         updatedAt: now,
       },
@@ -170,10 +170,16 @@ export async function cancelOrderForBuyer(id, buyerId, { stripe } = {}) {
     }
   );
 
-  // the stock was taken when the payment succeeded, so give it back
-  if (wasPaid) await restoreStock(order, now);
+  // the stock was taken when the payment succeeded, so give it back on a reversal
+  if (reversing && wasPaid) await restoreStock(order, now);
 
-  return { ...order, orderStatus: "cancelled", ...(refund && { paymentStatus: "refunded", refund }) };
+  return { ...order, orderStatus: to, ...(refund && { paymentStatus: "refunded", refund }) };
+}
+
+export async function cancelOrderForBuyer(id, buyerId, { stripe } = {}) {
+  const order = await findOrder(id);
+  if (order.buyerInfo?.userId !== buyerId) throw new ApiError(403, "This order is not yours");
+  return transitionOrder(order, "cancelled", buyerId, { stripe });
 }
 
 async function restoreStock(order, now) {
