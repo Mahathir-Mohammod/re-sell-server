@@ -1,7 +1,9 @@
 // Collection names. `user`/`session`/`account` are owned by Better Auth (client repo) —
-// we only read `user` here, so it is listed but never created or indexed by us.
+// we only read `user` and clean up session/account rows when an admin deletes a user.
 export const collections = {
   user: "user",
+  session: "session",
+  account: "account",
   products: "products",
   orders: "orders",
   payments: "payments",
