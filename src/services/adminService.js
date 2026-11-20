@@ -251,8 +251,15 @@ export async function adminStats() {
     rows.reduce((acc, row) => ({ ...acc, [row._id ?? fallback]: row.count }), {});
 
   return {
-    users: { total: userCount, byRole: toMap(roleCounts, "buyer") },
-    products: { total: productCount, byModeration: toMap(moderationCounts, "approved") },
+    // zeros are filled in so the dashboard never renders a blank card
+    users: {
+      total: userCount,
+      byRole: { buyer: 0, seller: 0, admin: 0, ...toMap(roleCounts, "buyer") },
+    },
+    products: {
+      total: productCount,
+      byModeration: { pending: 0, approved: 0, rejected: 0, ...toMap(moderationCounts, "approved") },
+    },
     orders: { total: orderCount, byStatus: toMap(orderStatusCounts, "pending") },
     revenue: {
       gross: Number((revenue?.gross ?? 0).toFixed(2)),

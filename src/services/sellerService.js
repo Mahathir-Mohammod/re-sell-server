@@ -12,6 +12,7 @@ const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 export async function listSellerOrders(sellerId, query) {
   const filter = { "sellerInfo.userId": sellerId };
   if (query.status) filter.orderStatus = query.status;
+  if (query.paymentStatus) filter.paymentStatus = query.paymentStatus;
   if (query.search) {
     const rx = new RegExp(escapeRegex(query.search).slice(0, 80), "i");
     filter.$or = [{ "items.title": rx }, { "buyerInfo.name": rx }, { "buyerInfo.email": rx }];

@@ -71,6 +71,7 @@ export const sellerOrdersSchema = {
   query: z.object({
     ...pageQuery,
     status: z.enum(ORDER_STATUS).optional(),
+    paymentStatus: z.enum(PAYMENT_STATUS).optional(),
     search,
   }),
 };

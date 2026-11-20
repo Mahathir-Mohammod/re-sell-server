@@ -301,7 +301,10 @@ test("admin analytics and stats report platform totals", async () => {
   const stats = await admin.adminStats();
   assert.equal(stats.users.total, 2, "admin + seller remain after the delete test");
   assert.equal(stats.users.byRole.seller, 1);
+  assert.equal(stats.users.byRole.admin, 1);
+  assert.equal(stats.users.byRole.buyer, 0, "empty roles are reported as zero, not missing");
   assert.equal(stats.products.total, 3);
+  assert.equal(stats.products.byModeration.pending, 0);
   assert.ok(stats.orders.total >= 1);
   assert.ok(stats.revenue.gross > 0);
   assert.ok(stats.revenue.net <= stats.revenue.gross);
