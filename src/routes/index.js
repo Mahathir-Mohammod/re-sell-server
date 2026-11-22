@@ -7,6 +7,7 @@ import orderRoutes from "./orderRoutes.js";
 import paymentRoutes from "./paymentRoutes.js";
 import adminRoutes from "./adminRoutes.js";
 import sellerRoutes from "./sellerRoutes.js";
+import wishlistRoutes from "./wishlistRoutes.js";
 
 const router = Router();
 
@@ -17,6 +18,7 @@ router.use("/orders", orderRoutes);
 router.use("/payments", paymentRoutes);
 router.use("/admin", adminRoutes);
 router.use("/seller", sellerRoutes);
+router.use("/wishlist", wishlistRoutes);
 router.get("/categories", getCategories);
 
 export default router;

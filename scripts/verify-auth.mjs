@@ -147,7 +147,7 @@ try {
     assert,
   });
 
-  console.log("\nPhase 0 + Phase 2 + Phase 4 verified end to end.");
+  console.log("\nPhase 0 + Phase 2 + Phase 4 + wishlist verified end to end.");
 } catch (err) {
   console.error(`\n${err.message}`);
   process.exitCode = 1;

@@ -204,5 +204,45 @@ export async function runDashboardChecks({ API_URL, CLIENT_URL, MONGODB_URI, sel
   );
   assert((await fetch(`${API_URL}/api/products?search=Orphaned%20Desk`)).status === 200, "search still healthy");
 
+  console.log("27. wishlist saves, lists and removes over HTTP");
+  const save = await json(
+    await fetch(`${API_URL}/api/wishlist`, {
+      method: "POST",
+      headers: auth(sellerToken),
+      body: JSON.stringify({ productId: pendingProduct._id }),
+    })
+  );
+  assert(save.status === 201, `save returned ${save.status}`);
+
+  const saved = await json(await fetch(`${API_URL}/api/wishlist`, { headers: auth(sellerToken) }));
+  assert(saved.body.meta.total === 1, "wishlist has one item");
+  assert(saved.body.data[0]._id === pendingProduct._id, "the saved product comes back with its data");
+
+  await fetch(`${API_URL}/api/wishlist`, {
+    method: "POST",
+    headers: auth(sellerToken),
+    body: JSON.stringify({ productId: pendingProduct._id }),
+  });
+  assert(
+    (await json(await fetch(`${API_URL}/api/wishlist`, { headers: auth(sellerToken) }))).body.meta.total === 1,
+    "saving twice does not duplicate"
+  );
+
+  const removed = await json(
+    await fetch(`${API_URL}/api/wishlist/${pendingProduct._id}`, {
+      method: "DELETE",
+      headers: auth(sellerToken),
+    })
+  );
+  assert(removed.body.data.removed === true, "remove reports the row was deleted");
+  assert(
+    (await json(await fetch(`${API_URL}/api/wishlist`, { headers: auth(sellerToken) }))).body.meta.total === 0,
+    "wishlist is empty again"
+  );
+  assert(
+    (await fetch(`${API_URL}/api/wishlist`, { headers: { authorization: "Bearer not-a-jwt" } })).status === 401,
+    "a garbage token cannot read a wishlist"
+  );
+
   await mongo.close();
 }
