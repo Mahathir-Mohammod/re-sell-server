@@ -11,6 +11,28 @@ const categoriesCol = () => getDb().collection(collections.categories);
 
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+// Seller names for a page of products, in one lookup instead of N. Products carry a
+// snapshot of the seller, so the verified badge has to come from the live user row.
+async function withSellerBadges(items) {
+  const ids = [...new Set(items.map((p) => p.sellerInfo?.userId).filter((id) => ObjectId.isValid(id)))].map(
+    (id) => new ObjectId(id)
+  );
+  if (!ids.length) return items;
+
+  const sellers = await getDb()
+    .collection(collections.user)
+    .find({ _id: { $in: ids } }, { projection: { isVerifiedSeller: 1, name: 1 } })
+    .toArray();
+  const verified = new Set(sellers.filter((s) => s.isVerifiedSeller === true).map((s) => s._id.toString()));
+
+  return items.map((product) => ({
+    ...product,
+    sellerInfo: product.sellerInfo
+      ? { ...product.sellerInfo, isVerified: verified.has(String(product.sellerInfo.userId)) }
+      : product.sellerInfo,
+  }));
+}
+
 export async function listProducts(query) {
   const filter = buildProductFilter(query);
   const { page, limit, skip } = getPagination(query);
@@ -25,7 +47,7 @@ export async function listProducts(query) {
     products().countDocuments(filter),
   ]);
 
-  return { items, meta: paginationMeta(page, limit, total) };
+  return { items: await withSellerBadges(items), meta: paginationMeta(page, limit, total) };
 }
 
 export async function listSellerProducts(userId, query) {
@@ -48,7 +70,8 @@ export async function getProduct(idOrSlug) {
   const byId = ObjectId.isValid(idOrSlug) ? { _id: new ObjectId(idOrSlug) } : { slug: idOrSlug };
   const product = await products().findOne(byId);
   if (!product) throw new ApiError(404, "Product not found");
-  return product;
+  const [withBadge] = await withSellerBadges([product]);
+  return withBadge;
 }
 
 async function assertCategoryExists(slug) {
@@ -65,11 +88,12 @@ export function recordView(id) {
 }
 
 export async function listFeatured(limit = 8) {
-  return products()
+  const items = await products()
     .find({ status: "available", moderationStatus: "approved", isFeatured: true })
     .sort({ createdAt: -1 })
     .limit(limit)
     .toArray();
+  return withSellerBadges(items);
 }
 
 export async function listCategories() {
