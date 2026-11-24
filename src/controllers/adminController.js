@@ -8,10 +8,12 @@ import {
   listAdminProducts,
   listAdminUsers,
   moderateProduct,
+  setSellerVerified,
   updateAdminUser,
   updateOrderStatusAsAdmin,
 } from "../services/adminService.js";
 import { adminAnalytics } from "../services/analyticsService.js";
+import { listReports, resolveReport } from "../services/reportService.js";
 
 export async function getAdminStats(req, res) {
   ok(res, await adminStats());
@@ -63,4 +65,19 @@ export async function getAdminPayments(req, res) {
 
 export async function getAdminAnalytics(req, res) {
   ok(res, await adminAnalytics());
+}
+
+// reports
+export async function getAdminReports(req, res) {
+  const { items, meta } = await listReports(req.validated.query);
+  ok(res, items, meta);
+}
+
+export async function patchAdminReport(req, res) {
+  ok(res, await resolveReport(req.validated.params.id, req.validated.body.status, req.user.id));
+}
+
+// sellers
+export async function patchAdminSellerVerify(req, res) {
+  ok(res, await setSellerVerified(req.validated.params.id, req.validated.body.verified));
 }

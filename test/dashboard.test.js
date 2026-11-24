@@ -15,6 +15,7 @@ const { default: app } = await import("../src/app.js");
 const admin = await import("../src/services/adminService.js");
 const seller = await import("../src/services/sellerService.js");
 const analytics = await import("../src/services/analyticsService.js");
+const reports = await import("../src/services/reportService.js");
 const { transitionOrder, assertTransition } = await import("../src/services/orderService.js");
 
 await connectDB();
@@ -332,4 +333,91 @@ test("admin routes are closed without a token", async () => {
     assert.equal(status, 401, path);
     assert.equal(body.success, false);
   }
+});
+// ------------------------------------------------------------------ verified sellers + reports
+
+test("verified sellers are flagged on product payloads", async () => {
+  const sellerId = new ObjectId().toString();
+  await db().collection("user").insertOne({
+    _id: new ObjectId(sellerId), name: "Verified Vic", email: "vic@example.com", role: "seller",
+    status: "active", isVerifiedSeller: true, createdAt: new Date(),
+  });
+  const unverifiedId = new ObjectId().toString();
+  await db().collection("user").insertOne({
+    _id: new ObjectId(unverifiedId), name: "Plain Pam", email: "pam@example.com", role: "seller",
+    status: "active", createdAt: new Date(),
+  });
+
+  await db().collection("products").insertMany([
+    product({ title: "Verified Rig", slug: "verified-rig", sellerInfo: { userId: sellerId, name: "Verified Vic", email: "vic@example.com" } }),
+    product({ title: "Plain Rig", slug: "plain-rig", sellerInfo: { userId: unverifiedId, name: "Plain Pam", email: "pam@example.com" } }),
+  ]);
+
+  const list = await get("/api/products?search=Rig");
+  const byTitle = Object.fromEntries(list.body.data.map((p) => [p.title, p.sellerInfo.isVerified]));
+  assert.equal(byTitle["Verified Rig"], true);
+  assert.equal(byTitle["Plain Rig"], false);
+
+  const detail = await get("/api/products/verified-rig");
+  assert.equal(detail.body.data.sellerInfo.isVerified, true, "detail carries the badge too");
+
+  // the badge follows the live user row, not the product snapshot
+  const unverified = await admin.setSellerVerified(unverifiedId, true);
+  assert.equal(unverified.isVerifiedSeller, true);
+  assert.equal((await get("/api/products/verified-rig")).body.data.sellerInfo.isVerified, true);
+});
+
+test("admins can toggle seller verification and stats count open reports", async () => {
+  const user = await db().collection("user").findOne({ email: "vic@example.com" });
+  const off = await admin.setSellerVerified(user._id.toString(), false);
+  assert.equal(off.isVerifiedSeller, false);
+  await assert.rejects(() => admin.setSellerVerified("nope", true), /User not found/);
+
+  const stats = await admin.adminStats();
+  assert.equal(typeof stats.reports.open, "number");
+});
+
+test("a report is created once per reporter and can be resolved", async () => {
+  const target = await db().collection("products").findOne({ slug: "verified-rig" });
+  const reporter = { id: BUYER, email: "b@example.com", name: "Buyer" };
+
+  const report = await reports.createReport(reporter, {
+    productId: target._id.toString(),
+    reason: "misleading",
+    details: "photos are not of this item",
+  });
+  assert.equal(report.status, "open");
+  assert.equal(report.productTitle, "Verified Rig");
+
+  await assert.rejects(
+    () => reports.createReport(reporter, { productId: target._id.toString(), reason: "other" }),
+    /already reported/
+  );
+
+  // a seller cannot report their own listing
+  await assert.rejects(
+    () => reports.createReport({ id: target.sellerInfo.userId, email: "v@x.com", name: "V" }, {
+      productId: target._id.toString(),
+      reason: "other",
+    }),
+    /your own listing/
+  );
+
+  const queued = await reports.listReports({ status: "open" });
+  assert.equal(queued.meta.total, 1);
+  assert.equal(queued.items[0].product.slug, "verified-rig", "the listing is attached for the admin");
+
+  const resolved = await reports.resolveReport(report._id.toString(), "dismissed", ADMIN_ID);
+  assert.equal(resolved.status, "dismissed");
+  assert.equal(resolved.resolvedBy, ADMIN_ID);
+  assert.equal((await reports.listReports({ status: "open" })).meta.total, 0);
+});
+
+test("report validation rejects bad reasons and ids", async () => {
+  const res = await fetch(`${base}/api/reports`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: "Bearer not-a-jwt" },
+    body: JSON.stringify({ productId: "x", reason: "bogus" }),
+  });
+  assert.equal(res.status, 401, "auth runs before validation");
 });

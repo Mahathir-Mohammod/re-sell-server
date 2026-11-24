@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   getAdminAnalytics,
+  getAdminReports,
   getAdminOrders,
   getAdminPayments,
   getAdminProducts,
@@ -8,6 +9,8 @@ import {
   getAdminUsers,
   patchAdminOrderStatus,
   patchAdminProduct,
+  patchAdminReport,
+  patchAdminSellerVerify,
   patchAdminUser,
   removeAdminProduct,
   removeAdminUser,
@@ -27,7 +30,9 @@ import {
   adminUsersSchema,
   adminProductsSchema,
   moderateProductSchema,
+  verifySellerSchema,
 } from "../validators/adminValidator.js";
+import { reportIdSchema, reportListSchema, resolveReportSchema } from "../validators/reportValidator.js";
 
 const router = Router();
 
@@ -49,5 +54,10 @@ router.get("/orders", validate(adminOrdersSchema), getAdminOrders);
 router.patch("/orders/:id", validate(orderIdSchema), validate(adminStatusSchema), patchAdminOrderStatus);
 
 router.get("/payments", validate(adminPaymentsSchema), getAdminPayments);
+
+router.get("/reports", validate(reportListSchema), getAdminReports);
+router.patch("/reports/:id", validate(reportIdSchema), validate(resolveReportSchema), patchAdminReport);
+
+router.patch("/sellers/:id/verify", validate(adminUserIdSchema), validate(verifySellerSchema), patchAdminSellerVerify);
 
 export default router;

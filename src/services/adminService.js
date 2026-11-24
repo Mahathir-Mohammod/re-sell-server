@@ -11,6 +11,7 @@ const users = () => db().collection(collections.user);
 const products = () => db().collection(collections.products);
 const orders = () => db().collection(collections.orders);
 const payments = () => db().collection(collections.payments);
+const reports = () => db().collection(collections.reports);
 
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -20,6 +21,7 @@ const USER_FIELDS = {
   email: 1,
   role: 1,
   status: 1,
+  isVerifiedSeller: 1,
   image: 1,
   phone: 1,
   location: 1,
@@ -221,7 +223,7 @@ export async function listAdminPayments(query) {
 // ---------------------------------------------------------------- dashboard stats
 
 export async function adminStats() {
-  const [userCount, roleCounts, productCount, moderationCounts, orderCount, orderStatusCounts, revenue] =
+  const [userCount, roleCounts, productCount, moderationCounts, orderCount, orderStatusCounts, revenue, reportsOpen] =
     await Promise.all([
       users().countDocuments(),
       users().aggregate([{ $group: { _id: { $ifNull: ["$role", "buyer"] }, count: { $sum: 1 } } }]).toArray(),
@@ -245,6 +247,7 @@ export async function adminStats() {
           },
         ])
         .next(),
+      reports().countDocuments({ status: "open" }),
     ]);
 
   const toMap = (rows, fallback) =>
@@ -261,6 +264,7 @@ export async function adminStats() {
       byModeration: { pending: 0, approved: 0, rejected: 0, ...toMap(moderationCounts, "approved") },
     },
     orders: { total: orderCount, byStatus: toMap(orderStatusCounts, "pending") },
+    reports: { open: reportsOpen },
     revenue: {
       gross: Number((revenue?.gross ?? 0).toFixed(2)),
       refunded: Number((revenue?.refunded ?? 0).toFixed(2)),
@@ -268,3 +272,18 @@ export async function adminStats() {
     },
   };
 }
+// ---------------------------------------------------------------- seller verification
+
+export async function setSellerVerified(id, verified) {
+  const _id = toObjectId(id);
+  if (!_id) throw new ApiError(404, "User not found");
+
+  const updated = await users().findOneAndUpdate(
+    { _id },
+    { $set: { isVerifiedSeller: Boolean(verified), updatedAt: new Date() } },
+    { returnDocument: "after", projection: USER_FIELDS }
+  );
+  if (!updated) throw new ApiError(404, "User not found");
+  return updated;
+}
+

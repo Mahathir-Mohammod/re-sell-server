@@ -75,3 +75,8 @@ export const sellerOrdersSchema = {
     search,
   }),
 };
+export const verifySellerSchema = {
+  body: z.object({ verified: z.boolean() }).or(z.object({ isVerifiedSeller: z.boolean() })).transform((data) => ({
+    verified: data.verified ?? data.isVerifiedSeller,
+  })),
+};
