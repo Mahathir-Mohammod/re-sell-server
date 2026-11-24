@@ -81,6 +81,7 @@ export async function runDashboardChecks({ API_URL, CLIENT_URL, MONGODB_URI, sel
 
   console.log("20. non-admins are locked out of /api/admin");
   const buyerToken = await signUpAs("verify-buyer2@example.com");
+  const buyerToken2 = await signUpAs("verify-reporter@example.com");
   assert((await fetch(`${API_URL}/api/admin/products`, { headers: auth(buyerToken) })).status === 403, "buyer blocked from admin routes");
   assert((await fetch(`${API_URL}/api/admin/products`, { headers: auth(sellerToken) })).status === 403, "seller blocked from admin routes");
 
@@ -242,6 +243,77 @@ export async function runDashboardChecks({ API_URL, CLIENT_URL, MONGODB_URI, sel
   assert(
     (await fetch(`${API_URL}/api/wishlist`, { headers: { authorization: "Bearer not-a-jwt" } })).status === 401,
     "a garbage token cannot read a wishlist"
+  );
+
+  console.log("28. seller verification badge reaches the product payload");
+  const verified = await json(
+    await fetch(`${API_URL}/api/admin/sellers/${sellerId}/verify`, {
+      method: "PATCH",
+      headers: auth(adminToken),
+      body: JSON.stringify({ verified: true }),
+    })
+  );
+  assert(verified.status === 200, `verify returned ${verified.status}`);
+  assert(verified.body.data.isVerifiedSeller === true, "seller flagged as verified");
+
+  const withBadge = await json(await fetch(`${API_URL}/api/products?search=Moderation%20Sofa`));
+  assert(withBadge.body.data[0].sellerInfo.isVerified === true, "listing carries the verified badge");
+
+  await fetch(`${API_URL}/api/admin/sellers/${sellerId}/verify`, {
+    method: "PATCH",
+    headers: auth(adminToken),
+    body: JSON.stringify({ verified: false }),
+  });
+  const withoutBadge = await json(await fetch(`${API_URL}/api/products?search=Moderation%20Sofa`));
+  assert(withoutBadge.body.data[0].sellerInfo.isVerified === false, "badge follows the live user row");
+
+  console.log("29. reporting a listing, refusing duplicates, and resolving it");
+  const reportBody = { productId: pendingProduct._id, reason: "misleading", details: "photos look reused" };
+  const firstReport = await json(
+    await fetch(`${API_URL}/api/reports`, {
+      method: "POST",
+      headers: auth(buyerToken2),
+      body: JSON.stringify(reportBody),
+    })
+  );
+  assert(firstReport.status === 201, `report returned ${firstReport.status}`);
+
+  const duplicate = await json(
+    await fetch(`${API_URL}/api/reports`, {
+      method: "POST",
+      headers: auth(buyerToken2),
+      body: JSON.stringify(reportBody),
+    })
+  );
+  assert(duplicate.status === 409, `duplicate report rejected (${duplicate.status})`);
+
+  const ownReport = await json(
+    await fetch(`${API_URL}/api/reports`, {
+      method: "POST",
+      headers: auth(sellerToken),
+      body: JSON.stringify({ productId: pendingProduct._id, reason: "other" }),
+    })
+  );
+  assert(ownReport.status === 400, `reporting your own listing rejected (${ownReport.status})`);
+
+  const reportQueue = await json(await fetch(`${API_URL}/api/admin/reports?status=open`, { headers: auth(adminToken) }));
+  assert(reportQueue.body.meta.total === 1, "report is in the admin queue");
+  assert(reportQueue.body.data[0].product !== null, "the reported listing is attached");
+
+  const statsWithReports = await json(await fetch(`${API_URL}/api/admin/stats`, { headers: auth(adminToken) }));
+  assert(statsWithReports.body.data.reports.open === 1, "open reports counted in stats");
+
+  const resolved = await json(
+    await fetch(`${API_URL}/api/admin/reports/${reportQueue.body.data[0]._id}`, {
+      method: "PATCH",
+      headers: auth(adminToken),
+      body: JSON.stringify({ status: "dismissed" }),
+    })
+  );
+  assert(resolved.body.data.status === "dismissed", "report resolved");
+  assert(
+    (await json(await fetch(`${API_URL}/api/admin/reports?status=open`, { headers: auth(adminToken) }))).body.meta.total === 0,
+    "open queue is empty again"
   );
 
   await mongo.close();
