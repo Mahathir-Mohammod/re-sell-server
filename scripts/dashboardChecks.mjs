@@ -316,5 +316,72 @@ export async function runDashboardChecks({ API_URL, CLIENT_URL, MONGODB_URI, sel
     "open queue is empty again"
   );
 
+  console.log("30. a delivered order can be reviewed exactly once");
+  const reporter = await db.collection("user").findOne({ email: "verify-reporter@example.com" });
+  const reporterId = reporter._id.toString();
+  const { insertedId: deliveredOrderId } = await db.collection("orders").insertOne({
+    buyerInfo: { userId: reporterId, name: "Reporter", email: "verify-reporter@example.com", phone: "555", address: "1 Test St" },
+    sellerInfo: { userId: sellerId, name: "Verify Seller", email: "verify@example.com" },
+    items: [{ productId: pendingProduct._id, title: pendingProduct.title, price: 40, quantity: 1, image: null }],
+    productId: pendingProduct._id,
+    subtotal: 40,
+    deliveryFee: 0.99,
+    total: 40.99,
+    paymentStatus: "paid",
+    orderStatus: "delivered",
+    transactionId: "pi_review_verify",
+    statusHistory: [],
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+
+  const reviewPayload = {
+    orderId: deliveredOrderId.toString(),
+    productId: pendingProduct._id,
+    rating: 5,
+    comment: "Arrived exactly as described",
+  };
+  const review = await json(
+    await fetch(`${API_URL}/api/reviews`, { method: "POST", headers: auth(buyerToken2), body: JSON.stringify(reviewPayload) })
+  );
+  assert(review.status === 201, `review created (${review.status})`);
+
+  const twice = await json(
+    await fetch(`${API_URL}/api/reviews`, { method: "POST", headers: auth(buyerToken2), body: JSON.stringify(reviewPayload) })
+  );
+  assert(twice.status === 409, `second review rejected (${twice.status})`);
+
+  const publicReviews = await json(await fetch(`${API_URL}/api/reviews/product/${pendingProduct._id}`));
+  assert(publicReviews.body.data.some((r) => r.rating === 5), "review is publicly readable");
+
+  const reviewedProduct = await json(await fetch(`${API_URL}/api/products/${pendingProduct._id}`));
+  assert(reviewedProduct.body.data.ratingCount === 1, "product rating count updated");
+  assert(reviewedProduct.body.data.ratingAvg === 5, "product average updated");
+
+  const sellerProfile = await json(await fetch(`${API_URL}/api/stats/sellers/${sellerId}`));
+  assert(sellerProfile.status === 200, `public seller profile (${sellerProfile.status})`);
+  assert(sellerProfile.body.data.stats.ratingCount === 1, "seller profile reports the rating");
+  assert(sellerProfile.body.data.listings.length >= 1, "public seller profile lists their products");
+
+  console.log("31. users can edit their own profile but not their role");
+  const profilePatch = await json(
+    await fetch(`${API_URL}/api/users/me`, {
+      method: "PATCH",
+      headers: auth(buyerToken2),
+      body: JSON.stringify({ name: "Reporter Renamed", location: "Testville", role: "admin" }),
+    })
+  );
+  assert(profilePatch.status === 200, `profile update (${profilePatch.status})`);
+  assert(profilePatch.body.data.name === "Reporter Renamed", "name saved");
+  assert(profilePatch.body.data.location === "Testville", "location saved");
+  assert(profilePatch.body.data.role === "buyer", "role is not self-editable");
+
+  const emptyPatch = await fetch(`${API_URL}/api/users/me`, {
+    method: "PATCH",
+    headers: auth(buyerToken2),
+    body: JSON.stringify({}),
+  });
+  assert(emptyPatch.status === 400, `empty profile update rejected (${emptyPatch.status})`);
+
   await mongo.close();
 }

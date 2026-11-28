@@ -147,7 +147,7 @@ try {
     assert,
   });
 
-  console.log("\nPhase 0-4, wishlist, verification and reports verified end to end.");
+  console.log("\nPhase 0-6 verified end to end: auth, products, orders, payments, dashboards, wishlist, reviews, profiles.");
 } catch (err) {
   console.error(`\n${err.message}`);
   process.exitCode = 1;
