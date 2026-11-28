@@ -9,6 +9,8 @@ import adminRoutes from "./adminRoutes.js";
 import sellerRoutes from "./sellerRoutes.js";
 import wishlistRoutes from "./wishlistRoutes.js";
 import reportRoutes from "./reportRoutes.js";
+import reviewRoutes from "./reviewRoutes.js";
+import statsRoutes from "./statsRoutes.js";
 
 const router = Router();
 
@@ -21,6 +23,8 @@ router.use("/admin", adminRoutes);
 router.use("/seller", sellerRoutes);
 router.use("/wishlist", wishlistRoutes);
 router.use("/reports", reportRoutes);
+router.use("/reviews", reviewRoutes);
+router.use("/stats", statsRoutes);
 router.get("/categories", getCategories);
 
 export default router;

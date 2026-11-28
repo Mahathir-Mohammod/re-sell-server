@@ -21,3 +21,22 @@ export async function becomeSeller(req, res) {
   }
   ok(res, { role: req.user.role });
 }
+// Only the fields a user is allowed to edit about themselves. Role and status are
+// deliberately absent — those are admin-only.
+export async function updateMe(req, res) {
+  const patch = req.validated.body;
+  const update = { ...patch, updatedAt: new Date() };
+
+  await getDb()
+    .collection(collections.user)
+    .updateOne({ _id: new ObjectId(req.user.id) }, { $set: update });
+
+  const saved = await getDb()
+    .collection(collections.user)
+    .findOne(
+      { _id: new ObjectId(req.user.id) },
+      { projection: { name: 1, email: 1, role: 1, image: 1, phone: 1, location: 1, bio: 1, createdAt: 1 } }
+    );
+
+  ok(res, { ...saved, id: saved._id.toString() });
+}
